@@ -4,12 +4,8 @@ import { can, type Permission } from "../../domain/permissions";
 import { SCHEMA_VERSION, type AppRole, type LeadFinderSnapshot } from "../../domain/types";
 import { recordScoreChanges } from "../../engine/score-history";
 import { defaultNewId, type MutationContext } from "../../workflow/context";
-import * as flow from "../../workflow/actions";
-import { importCsv, type CsvImportPlan } from "../../workflow/csv-import";
-import { markNotDuplicate, mergeDuplicateLeads } from "../../workflow/duplicate-review";
-import { createLead, previewDuplicates, type CreateLeadOptions, type NewLeadInput } from "../../workflow/ingest";
-import { mergeLeads, mergeProperties } from "../../workflow/merge";
-import { RepositoryError, type LeadFinderRepository } from "../repository";
+import { RepositoryError } from "../repository";
+import { WorkflowRepository } from "../workflow-repository";
 import { createDemoSnapshot } from "./seed";
 
 const STORAGE_KEY = `traylor-lead-finder:demo-snapshot:v${SCHEMA_VERSION}`;
@@ -78,12 +74,14 @@ export interface LocalDemoOptions {
  * It holds NO business rules — those live in src/lib/workflow and are shared with the future Supabase repository.
  * What it does own: loading, saving, simulated latency/errors, and the role check.
  */
-export class LocalDemoRepository implements LeadFinderRepository {
+export class LocalDemoRepository extends WorkflowRepository {
   readonly kind = "demo" as const;
   readonly label = "Local demo data (fictional) — no database connected";
   private snapshot: LeadFinderSnapshot | null = null;
 
-  constructor(private readonly options: LocalDemoOptions = {}) {}
+  constructor(private readonly options: LocalDemoOptions = {}) {
+    super();
+  }
 
   private now(): Date {
     return this.options.clock ? this.options.clock() : new Date();
@@ -113,7 +111,7 @@ export class LocalDemoRepository implements LeadFinderRepository {
    * Run a change as one all-or-nothing step on a COPY of the data, re-score, then save.
    * If anything throws, the real data is untouched.
    */
-  private async change<T>(permission: Permission, fn: (s: LeadFinderSnapshot, m: MutationContext) => T): Promise<T> {
+  protected async change<T>(permission: Permission, fn: (s: LeadFinderSnapshot, m: MutationContext) => T): Promise<T> {
     const sim = await this.simulate();
     if (!can(sim.role, permission)) {
       throw new RepositoryError(
@@ -146,74 +144,9 @@ export class LocalDemoRepository implements LeadFinderRepository {
     return snap;
   }
 
-  logActivity(input: Parameters<LeadFinderRepository["logActivity"]>[0]) {
-    return this.change("work_leads", (s, m) => flow.logActivity(s, m, input));
-  }
-  scheduleFollowUp(input: Parameters<LeadFinderRepository["scheduleFollowUp"]>[0]) {
-    return this.change("work_leads", (s, m) => flow.scheduleFollowUp(s, m, input));
-  }
-  completeFollowUp(followUpId: string, note?: string) {
-    return this.change("work_leads", (s, m) => flow.completeFollowUp(s, m, followUpId, note));
-  }
-  scheduleWalkthrough(input: Parameters<LeadFinderRepository["scheduleWalkthrough"]>[0]) {
-    return this.change("work_leads", (s, m) => flow.scheduleWalkthrough(s, m, input));
-  }
-  completeWalkthrough(input: Parameters<LeadFinderRepository["completeWalkthrough"]>[0]) {
-    return this.change("work_leads", (s, m) => flow.completeWalkthrough(s, m, input));
-  }
-  async setStatus(leadId: string, status: Parameters<LeadFinderRepository["setStatus"]>[1], note?: string) {
-    await this.change("work_leads", (s, m) => flow.setStatus(s, m, leadId, status, note));
-  }
-  async markWon(leadId: string, note?: string) {
-    await this.change("work_leads", (s, m) => flow.markWon(s, m, leadId, note));
-  }
-  async markLost(leadId: string, code: Parameters<LeadFinderRepository["markLost"]>[1], note?: string) {
-    await this.change("work_leads", (s, m) => flow.markLost(s, m, leadId, code, note));
-  }
-  async snooze(leadId: string, until: string) {
-    await this.change("work_leads", (s, m) => flow.snooze(s, m, leadId, until));
-  }
-  async unsnooze(leadId: string) {
-    await this.change("work_leads", (s, m) => flow.unsnooze(s, m, leadId));
-  }
-  async markNotAFit(leadId: string, reason: string) {
-    await this.change("work_leads", (s, m) => flow.markNotAFit(s, m, leadId, reason));
-  }
-  async restoreStatus(leadId: string, status: Parameters<LeadFinderRepository["restoreStatus"]>[1]) {
-    await this.change("work_leads", (s, m) => flow.restoreStatus(s, m, leadId, status));
-  }
-  async requestQuote(leadId: string) {
-    await this.change("work_leads", (s, m) => flow.requestQuote(s, m, leadId));
-  }
-  async setPotentialValue(leadId: string, value: Parameters<LeadFinderRepository["setPotentialValue"]>[1]) {
-    await this.change("edit_records", (s, m) => flow.setPotentialValue(s, m, leadId, value));
-  }
-  async markVerified(leadId: string, note?: string) {
-    await this.change("work_leads", (s, m) => flow.markVerified(s, m, leadId, note));
-  }
-
-  async previewDuplicates(input: NewLeadInput) {
+  protected async current(): Promise<LeadFinderSnapshot> {
     await this.simulate();
-    return previewDuplicates(this.ensure(), input);
-  }
-  createLead(input: NewLeadInput, options?: CreateLeadOptions) {
-    return this.change("edit_records", (s, m) => createLead(s, m, input, options));
-  }
-  importCsv(plan: CsvImportPlan) {
-    return this.change("edit_records", (s, m) => importCsv(s, m, plan));
-  }
-
-  mergeProperties(survivorId: string, duplicateId: string) {
-    return this.change("merge_records", (s, m) => mergeProperties(s, m, survivorId, duplicateId));
-  }
-  mergeLeads(survivorId: string, duplicateId: string) {
-    return this.change("merge_records", (s, m) => mergeLeads(s, m, survivorId, duplicateId));
-  }
-  mergeDuplicateLeads(survivorId: string, duplicateId: string) {
-    return this.change("merge_records", (s, m) => mergeDuplicateLeads(s, m, survivorId, duplicateId));
-  }
-  async markNotDuplicate(leadId: string, otherLeadId: string, note?: string) {
-    await this.change("merge_records", (s, m) => markNotDuplicate(s, m, leadId, otherLeadId, note));
+    return this.ensure();
   }
 
   async reset() {

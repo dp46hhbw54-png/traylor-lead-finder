@@ -478,7 +478,9 @@ begin
     for k in select jsonb_object_keys(expected) loop
       execute format('select updated_at from lead_finder.%I where %I::text = $1', t, pk) into current_ts using k;
       if current_ts is distinct from (expected ->> k)::timestamptz then
-        raise exception 'LF_CONFLICT: % % was changed by someone else', t, k using errcode = '40001';
+        -- PT409 = HTTP 409 Conflict. NOT 40001: PostgREST treats 40001 as a transient serialization failure
+        -- and silently re-runs the transaction forever, which would freeze the app for both people.
+        raise exception 'LF_CONFLICT: % % was changed by someone else', t, k using errcode = 'PT409';
       end if;
     end loop;
   end loop;

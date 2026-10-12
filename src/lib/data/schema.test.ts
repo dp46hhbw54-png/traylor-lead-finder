@@ -124,6 +124,8 @@ describe("database design matches the app's data model", () => {
     assert.match(fn, /set search_path = ''/);
     assert.match(fn, /set constraints all deferred/);
     assert.match(fn, /LF_CONFLICT/, "refuses to overwrite someone else's newer change");
+    assert.match(fn, /LF_CONFLICT[^\n]*errcode = 'PT409'/, "conflict is a plain HTTP 409");
+    assert.doesNotMatch(fn, /errcode = '40001'/, "never 40001: PostgREST would silently retry it forever");
     assert.match(fn, /history and cannot be changed/);
     assert.doesNotMatch(fn, /\bdelete\b/i, "never deletes");
     assert.doesNotMatch(fn, /'user_roles'/, "roles cannot be changed through it");

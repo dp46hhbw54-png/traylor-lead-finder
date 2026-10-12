@@ -9,6 +9,7 @@ import { resolveScoringSettings } from "@/lib/config/scoring-settings";
 import { APP_ROLE_LABEL } from "@/lib/domain/labels";
 import type { AppRole } from "@/lib/domain/types";
 import { getDemoSimulation, setDemoSimulation, type DemoSimulation } from "@/lib/data/demo/local-demo-repository";
+import { SignOutButton, useBackend } from "@/components/auth/backend-gate";
 import { useLeadFinder } from "@/state/lead-finder-store";
 
 const card = "rounded-2xl border border-slate-200 bg-white p-4 sm:p-5";
@@ -27,6 +28,9 @@ function Toggle({ label, description, checked, onChange }: { label: string; desc
 
 export function SettingsScreen() {
   const { repo, actions, reload, snapshot } = useLeadFinder();
+  const { mode, session } = useBackend();
+  const live = mode === "supabase";
+  const me = live ? snapshot?.userRoles.find((r) => r.userId === session?.userId) : undefined;
   const [sim, setSim] = useState<DemoSimulation | null>(null);
   const [resetting, setResetting] = useState(false);
 
@@ -55,66 +59,99 @@ export function SettingsScreen() {
 
   return (
     <>
-      <PageHeader title="Settings" description="Data source, demo controls, service area and scoring rules." />
+      <PageHeader title="Settings" description={live ? "Your account, service area and scoring rules." : "Data source, demo controls, service area and scoring rules."} />
 
       <div className="space-y-4">
-        <section className={card}>
-          <h2 className="flex items-center gap-2 font-semibold text-slate-900">
-            <LuDatabase className="h-4 w-4 text-slate-500" /> Data source
-          </h2>
-          <p className="mt-1 text-sm text-slate-700">{repo.label}</p>
-          <ul className="mt-2 space-y-1 text-sm text-slate-600">
-            <li>• No Supabase project is connected. No SQL, migrations or database objects exist for this app yet.</li>
-            <li>• Not connected to the Employee Operations, Supply, Inventory, Command Center or Client Portal systems.</li>
-            <li>• Your demo changes are saved only in this browser.</li>
-            <li>• Sign-in arrives with the dedicated Lead Finder Supabase project. Until then, use “Pretend I'm signed in as” below to see what each role can do.</li>
-          </ul>
-        </section>
-
-        <section className={card}>
-          <h2 className="font-semibold text-slate-900">Demo controls</h2>
-          <p className="mt-1 text-sm text-slate-600">Use these to review loading, empty and error states.</p>
-          {sim && (
-            <div className="mt-2 divide-y divide-slate-100">
-              <Toggle label="Simulate load error" description="Every screen shows its error state with a retry." checked={sim.failLoads} onChange={(v) => update({ failLoads: v })} />
-              <Toggle label="Simulate empty database" description="Shows the empty states." checked={sim.emptyDataset} onChange={(v) => update({ emptyDataset: v })} />
-              <label className="flex items-start justify-between gap-4 py-2">
-                <span>
-                  <span className="block text-sm font-medium text-slate-800">Pretend I'm signed in as</span>
-                  <span className="block text-xs text-slate-500">Viewers can look but not change anything. Managers can work leads and merge duplicates. Owners can also manage settings.</span>
-                </span>
-                <select
-                  className="mt-1 h-11 shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-sm"
-                  value={sim.role}
-                  onChange={(e) => update({ role: e.target.value as AppRole })}
-                  aria-label="Pretend to be signed in as"
-                >
-                  {(["owner", "manager", "viewer"] as AppRole[]).map((r) => (
-                    <option key={r} value={r}>
-                      {APP_ROLE_LABEL[r]}
-                    </option>
+        {live ? (
+          <section className={card}>
+            <h2 className="flex items-center gap-2 font-semibold text-slate-900">
+              <LuDatabase className="h-4 w-4 text-slate-500" /> Data source
+            </h2>
+            <p className="mt-1 text-sm text-slate-700">Lead Finder database — shared by everyone you've invited.</p>
+            <ul className="mt-2 space-y-1 text-sm text-slate-600">
+              <li>
+                • Signed in as <span className="font-medium text-slate-800">{session?.email}</span>
+                {me ? ` · ${APP_ROLE_LABEL[me.role]}` : ""}
+              </li>
+              <li>• Only invited accounts can sign in. Each person's access is checked by the database itself.</li>
+              <li>• Not connected to the Employee Operations, Supply, Inventory, Command Center or Client Portal systems.</li>
+            </ul>
+            {snapshot && snapshot.userRoles.length > 1 && (
+              <div className="mt-3">
+                <h3 className="text-sm font-semibold text-slate-800">People with access</h3>
+                <ul className="mt-1 divide-y divide-slate-100 text-sm">
+                  {snapshot.userRoles.map((r) => (
+                    <li key={r.id} className="flex min-w-0 items-center justify-between gap-3 py-1.5">
+                      <span className="min-w-0 truncate text-slate-700">{r.displayName || r.email}</span>
+                      <span className="shrink-0 text-xs text-slate-500">{r.active ? APP_ROLE_LABEL[r.role] : "No access"}</span>
+                    </li>
                   ))}
-                </select>
-              </label>
-              <Toggle label="Simulate slow network" description="Adds a 2-second delay so loading states are visible." checked={sim.latencyMs >= 2000} onChange={(v) => update({ latencyMs: v ? 2000 : 350 })} />
+                </ul>
+              </div>
+            )}
+            <SignOutButton className="mt-4 w-full sm:w-auto" />
+          </section>
+        ) : (
+          <>
+        <section className={card}>
+            <h2 className="flex items-center gap-2 font-semibold text-slate-900">
+              <LuDatabase className="h-4 w-4 text-slate-500" /> Data source
+            </h2>
+            <p className="mt-1 text-sm text-slate-700">{repo.label}</p>
+            <ul className="mt-2 space-y-1 text-sm text-slate-600">
+              <li>• No Supabase project is connected. No SQL, migrations or database objects exist for this app yet.</li>
+              <li>• Not connected to the Employee Operations, Supply, Inventory, Command Center or Client Portal systems.</li>
+              <li>• Your demo changes are saved only in this browser.</li>
+              <li>• Sign-in arrives with the dedicated Lead Finder Supabase project. Until then, use “Pretend I'm signed in as” below to see what each role can do.</li>
+            </ul>
+          </section>
+  
+          <section className={card}>
+            <h2 className="font-semibold text-slate-900">Demo controls</h2>
+            <p className="mt-1 text-sm text-slate-600">Use these to review loading, empty and error states.</p>
+            {sim && (
+              <div className="mt-2 divide-y divide-slate-100">
+                <Toggle label="Simulate load error" description="Every screen shows its error state with a retry." checked={sim.failLoads} onChange={(v) => update({ failLoads: v })} />
+                <Toggle label="Simulate empty database" description="Shows the empty states." checked={sim.emptyDataset} onChange={(v) => update({ emptyDataset: v })} />
+                <label className="flex items-start justify-between gap-4 py-2">
+                  <span>
+                    <span className="block text-sm font-medium text-slate-800">Pretend I'm signed in as</span>
+                    <span className="block text-xs text-slate-500">Viewers can look but not change anything. Managers can work leads and merge duplicates. Owners can also manage settings.</span>
+                  </span>
+                  <select
+                    className="mt-1 h-11 shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-sm"
+                    value={sim.role}
+                    onChange={(e) => update({ role: e.target.value as AppRole })}
+                    aria-label="Pretend to be signed in as"
+                  >
+                    {(["owner", "manager", "viewer"] as AppRole[]).map((r) => (
+                      <option key={r} value={r}>
+                        {APP_ROLE_LABEL[r]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Toggle label="Simulate slow network" description="Adds a 2-second delay so loading states are visible." checked={sim.latencyMs >= 2000} onChange={(v) => update({ latencyMs: v ? 2000 : 350 })} />
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <Button
+                variant="secondary"
+                disabled={resetting}
+                icon={<LuRefreshCw className={clsx("h-4 w-4", resetting && "animate-spin")} />}
+                onClick={async () => {
+                  setResetting(true);
+                  await actions.resetDemo();
+                  setResetting(false);
+                }}
+              >
+                Reset demo data
+              </Button>
+              <span className="text-xs text-slate-500">Restores the 22 fictional demo leads and clears your demo changes.</span>
             </div>
-          )}
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <Button
-              variant="secondary"
-              disabled={resetting}
-              icon={<LuRefreshCw className={clsx("h-4 w-4", resetting && "animate-spin")} />}
-              onClick={async () => {
-                setResetting(true);
-                await actions.resetDemo();
-                setResetting(false);
-              }}
-            >
-              Reset demo data
-            </Button>
-            <span className="text-xs text-slate-500">Restores the 22 fictional demo leads and clears your demo changes.</span>
-          </div>
-        </section>
+          </section>
+          </>
+        )}
 
         <section className={card}>
           <h2 className="font-semibold text-slate-900">Service area</h2>
@@ -132,7 +169,7 @@ export function SettingsScreen() {
         <details className={card}>
           <summary className="cursor-pointer font-semibold text-slate-900">Data foundation (advanced)</summary>
           <p className="mt-2 text-sm text-slate-600">
-            What this app stores, ready to move to the dedicated Lead Finder database. Nothing is connected yet — this is the demo copy in your browser.
+            {live ? "What the Lead Finder database holds (only what your account may see)." : "What this app stores, ready to move to the dedicated Lead Finder database. Nothing is connected yet — this is the demo copy in your browser."}
           </p>
           <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
             {(
@@ -162,7 +199,7 @@ export function SettingsScreen() {
               </div>
             ))}
           </dl>
-          <p className="mt-3 text-xs text-slate-500">Database design (not run anywhere): <code className="rounded bg-slate-100 px-1">supabase/migrations/20261012000001_lead_finder_schema.sql</code></p>
+          <p className="mt-3 text-xs text-slate-500">Database design: <code className="rounded bg-slate-100 px-1">supabase/migrations/20261012000001_lead_finder_schema.sql</code></p>
         </details>
 
         <section className={card}>

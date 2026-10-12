@@ -1,4 +1,4 @@
-# Lead Finder database (draft — not applied)
+# Lead Finder database (not yet applied to the real project)
 
 Two files, run in this order, **only** in the dedicated Lead Finder Supabase project and **only** after the CEO approves:
 
@@ -6,7 +6,9 @@ Two files, run in this order, **only** in the dedicated Lead Finder Supabase pro
 2. `migrations/20261012000002_lead_finder_reference_data.sql` — the service area (8 cities, 4 parishes) and the 3 ways leads come in. No leads, businesses, contacts or demo data.
 
 ## Status
-- **Never run against any Supabase project.** Validated in a throwaway local Postgres 16 with a stub of Supabase's `auth` schema and roles (same settings as the real project: "Automatically expose new tables" OFF), then deleted.
+- **Not yet applied to the real Lead Finder project** (waiting for approval — see `docs/SETUP.md`).
+- Oct 12: applied to a local stack built from Supabase's own components (Postgres + Supabase Auth v2.197.0 + PostgREST v13.0.8) and tested end to end with the app — `tests/README.md`. That run found and fixed one serious bug: a "someone else changed it" conflict used error code 40001, which PostgREST retries forever; it now uses `PT409` (HTTP 409).
+- Earlier: **never run against any Supabase project.** Validated in a throwaway local Postgres 16 with a stub of Supabase's `auth` schema and roles (same settings as the real project: "Automatically expose new tables" OFF), then deleted.
 - Connection-readiness review (Oct 12): the app's real business rules generated ~350 rows across all 16 data tables (manual intake, web-link source marked unavailable, CSV import with duplicates, merges, "not a duplicate", quote request, lost, verified, snooze, follow-up completed). Those rows were saved **as a signed-in Manager with security on**, read back as a Viewer, and compared field by field: **0 differences** in ~4,400 fields.
 
 ## Rules the database enforces (not just the app)
@@ -20,7 +22,7 @@ Two files, run in this order, **only** in the dedicated Lead Finder Supabase pro
 ## How the app saves: `lead_finder.apply_changes(changes)`
 One call = one transaction = everything saved or nothing saved (adding a lead touches ~8 tables).
 - Runs **as the signed-in person** (`security invoker`), so every rule above still applies.
-- Refuses a save if someone else changed the same record since it was loaded (`LF_CONFLICT`) — no silent overwrites when two people work at once.
+- Refuses a save if someone else changed the same record since it was loaded (`LF_CONFLICT`, HTTP 409) — no silent overwrites when two people work at once.
 - Refuses unknown tables/columns, changes to history, and changes to users/roles. Never deletes.
 - All foreign keys are deferrable so a lead, its property and its source record can be saved together.
 
@@ -30,3 +32,6 @@ One call = one transaction = everything saved or nothing saved (adding a lead to
 
 `src/lib/data/schema.test.ts` keeps this SQL and the app's data model in step.
 Keys: the app needs only the project URL and the public (anon) key. The service-role key and database password never go in code, git, or chat.
+
+## Email template
+`email-templates/magic-link.html` — paste into Supabase → Authentication → Emails → **Magic Link** so sign-in emails contain the 6-digit code (Supabase's default template only has a link).

@@ -2,7 +2,7 @@
 
 **Who should Traylor Pro call today?** — a standalone app that finds, ranks and tracks new commercial cleaning opportunities.
 
-> **Status: Phase 3 — Lead Finder + real lead intake (local demo).** All data is fictional and lives in your browser. No database is connected. Not connected to the Employee Operations, Supply, Inventory, Command Center or Client Portal systems.
+> **Status: Phase 3 + database integration (built and tested, not yet deployed).** By default the app runs on fictional demo data in your browser. With `NEXT_PUBLIC_DATA_SOURCE=supabase` it uses the **dedicated Lead Finder Supabase project only**, with invite-only email-code sign-in. Not connected to the Employee Operations, Supply, Inventory, Command Center or Client Portal systems. Setup: **[docs/SETUP.md](docs/SETUP.md)**.
 
 ## Run it locally
 
@@ -21,6 +21,14 @@ Other scripts:
 | `npm test` | Unit tests for scoring, freshness, recommended actions and Today ranking |
 | `npm run typecheck` | TypeScript check |
 | `npm run build` | Production build (also type-checks) |
+| `npm run test:db` | Live tests against a **throwaway** Supabase stack (see `supabase/tests/README.md`) |
+
+## Database mode (added after Phase 3)
+
+- `NEXT_PUBLIC_DATA_SOURCE=supabase` + the project URL and **public** key → the app shows an invite-only sign-in (email → 6-digit code). No server secrets exist in the app.
+- Same business rules as the demo (`WorkflowRepository`); only loading/saving differs (`SupabaseRepository`). Each change is saved in **one all-or-nothing call** (`lead_finder.apply_changes`) that runs as the signed-in person, never deletes, and refuses to overwrite someone else's newer change.
+- Both people see each other's changes after each save, when the app comes back into view, and every minute.
+- If the database settings are missing or wrong, the app says so — it never quietly switches to demo data.
 
 ## What Phase 3 added (Lead Finder + intake)
 

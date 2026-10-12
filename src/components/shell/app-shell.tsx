@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { LuMenu, LuX } from "react-icons/lu";
+import { SignOutButton, useBackend } from "@/components/auth/backend-gate";
 import { APP_NAME, CURRENT_PHASE, NAV_ITEMS } from "./nav-items";
 
 function isActive(pathname: string, href: string) {
@@ -59,15 +60,30 @@ export function DemoBanner() {
   );
 }
 
+/** Who is signed in (database mode only). */
+function Account({ dark = false }: { dark?: boolean }) {
+  const { mode, session } = useBackend();
+  if (mode !== "supabase" || !session) return null;
+  return (
+    <div className={clsx("space-y-1 border-t pt-3", dark ? "border-white/10" : "border-slate-200")}>
+      <p className={clsx("truncate px-3 text-xs", dark ? "text-slate-400" : "text-slate-500")}>
+        Signed in as <span className={dark ? "text-slate-200" : "text-slate-800"}>{session.email}</span>
+      </p>
+      <SignOutButton dark={dark} />
+    </div>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "/";
   const [open, setOpen] = useState(false);
+  const { mode } = useBackend();
 
   useEffect(() => setOpen(false), [pathname]);
 
   return (
     <div className="min-h-screen">
-      <DemoBanner />
+      {mode === "demo" && <DemoBanner />}
 
       {/* Mobile top bar */}
       <header className="sticky top-0 z-30 flex items-center justify-between bg-slate-900 px-4 py-3 lg:hidden">
@@ -94,7 +110,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <LuX className="h-5 w-5" />
               </button>
             </div>
-            <NavList pathname={pathname} onNavigate={() => setOpen(false)} />
+            <div className="flex-1 overflow-y-auto">
+              <NavList pathname={pathname} onNavigate={() => setOpen(false)} />
+            </div>
+            <Account dark />
           </div>
         </div>
       )}
@@ -108,7 +127,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="mt-6 flex-1 overflow-y-auto">
             <NavList pathname={pathname} />
           </div>
-          <p className="px-3 text-[11px] leading-snug text-slate-500">Phase {CURRENT_PHASE} · Local demo build</p>
+          <Account dark />
+          <p className="mt-2 px-3 text-[11px] leading-snug text-slate-500">Phase {CURRENT_PHASE} · {mode === "demo" ? "Local demo build" : "Live database"}</p>
         </aside>
 
         <main className="min-w-0 flex-1">

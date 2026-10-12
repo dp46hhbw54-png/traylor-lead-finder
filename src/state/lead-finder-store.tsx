@@ -2,7 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useToast } from "@/components/ui/toast";
-import { getRepository, RepositoryError, type LeadFinderRepository } from "@/lib/data";
+import { useBackend } from "@/components/auth/backend-gate";
+import { RepositoryError, SignedOutError, type LeadFinderRepository } from "@/lib/data";
 import type { CreateLeadOptions, CreateLeadResult, CsvImportPlan, CsvImportResult, NewLeadInput } from "@/lib/data/repository";
 import { LOST_REASON_LABEL, PIPELINE_STATUS_LABEL } from "@/lib/domain/labels";
 import type { ContactMethod, LeadFinderSnapshot, LostReasonCode, PipelineStatus, PotentialValue, WalkthroughOutcome } from "@/lib/domain/types";
@@ -47,12 +48,12 @@ function explain(err: unknown): { message: string; nextStep: string } {
   if (err instanceof RepositoryError) return { message: err.message, nextStep: err.nextStep };
   return {
     message: err instanceof Error ? err.message : "An unexpected error occurred.",
-    nextStep: "Try again. If it keeps happening, reset the demo data in Settings.",
+    nextStep: "Try again. If it keeps happening, tell the Owner what you were doing.",
   };
 }
 
 export function LeadFinderProvider({ children }: { children: ReactNode }) {
-  const repo = useMemo(() => getRepository(), []);
+  const { repo, sessionLost } = useBackend();
   const toast = useToast();
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [snapshot, setSnapshot] = useState<LeadFinderSnapshot | null>(null);
@@ -60,22 +61,46 @@ export function LeadFinderProvider({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const mounted = useRef(true);
 
+  const hasData = useRef(false);
   const load = useCallback(
-    async (showSpinner: boolean) => {
+    async (showSpinner: boolean, opts: { quiet?: boolean } = {}) => {
       if (showSpinner) setState({ status: "loading" });
       try {
         const snap = await repo.loadSnapshot();
         if (!mounted.current) return;
         setSnapshot(snap);
+        hasData.current = true;
         setNow(new Date());
         setState({ status: "ready" });
       } catch (err) {
         if (!mounted.current) return;
+        if (err instanceof SignedOutError) return sessionLost();
+        // A background refresh that fails keeps showing what's on screen rather than blanking it.
+        if (opts.quiet && hasData.current) return;
         setState({ status: "error", ...explain(err) });
       }
     },
-    [repo],
+    [repo, sessionLost],
   );
+
+  // Shared data: when two people use the app, pick up each other's changes when the app comes back
+  // into view and every minute while it's open. Never while a save is in progress.
+  const busyRef = useRef(false);
+  useEffect(() => {
+    if (repo.kind !== "supabase") return;
+    const refresh = () => {
+      if (!busyRef.current && document.visibilityState === "visible") void load(false, { quiet: true });
+    };
+    const onVisible = () => document.visibilityState === "visible" && refresh();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", refresh);
+    const timer = window.setInterval(refresh, 60_000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", refresh);
+      window.clearInterval(timer);
+    };
+  }, [repo, load]);
 
   useEffect(() => {
     mounted.current = true;
@@ -89,6 +114,7 @@ export function LeadFinderProvider({ children }: { children: ReactNode }) {
   const run = useCallback(
     async (fn: () => Promise<unknown>, success: { title: string; description?: string; undo?: () => Promise<unknown> }) => {
       setBusy(true);
+      busyRef.current = true;
       try {
         await fn();
         await load(false);
@@ -118,18 +144,21 @@ export function LeadFinderProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         const e = explain(err);
         toast.push({ kind: "error", title: "That didn't save", description: `${e.message} ${e.nextStep}` });
+        if (err instanceof SignedOutError) sessionLost();
         return false;
       } finally {
         setBusy(false);
+        busyRef.current = false;
       }
     },
-    [load, toast],
+    [load, toast, sessionLost],
   );
 
   /** Like `run`, but hands back the result; the caller decides what success looks like. */
   const runFor = useCallback(
     async <T,>(fn: () => Promise<T>, success: (result: T) => { title: string; description?: string } | null): Promise<T | null> => {
       setBusy(true);
+      busyRef.current = true;
       try {
         const result = await fn();
         await load(false);
@@ -139,12 +168,14 @@ export function LeadFinderProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         const e = explain(err);
         toast.push({ kind: "error", title: "That didn't save", description: `${e.message} ${e.nextStep}` });
+        if (err instanceof SignedOutError) sessionLost();
         return null;
       } finally {
         setBusy(false);
+        busyRef.current = false;
       }
     },
-    [load, toast],
+    [load, toast, sessionLost],
   );
 
   const actions = useMemo<LeadFinderStore["actions"]>(
